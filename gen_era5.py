@@ -185,17 +185,8 @@ class era5(object):
                 # check orientation of latitude
                 self.ds = _utils.check_latitude(self.ds)
 
-                # maintain encoding for storage savings
-                scale_factor = ds0.encoding['scale_factor']
-                add_offset   = ds0.encoding['add_offset']
-
                 # save with encoding
-                self.ds.to_netcdf(fout, encoding={nameVar: {
-                                  "dtype": 'int16',
-                                  "scale_factor": scale_factor,
-                                  "add_offset": add_offset,
-                                  "_FillValue": -32767}},
-                                  unlimited_dims="valid_time")
+                self.ds.to_netcdf(fout, unlimited_dims="valid_time")
 
     def format_nc(self, da, nameVar):
         """
