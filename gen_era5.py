@@ -28,7 +28,7 @@ class era5(object):
         self.path_FORCING = config.processed_path
         self.clean        = False    ## Clean extraction (longest bit)
         self.sph_ON = config.sph_ON  ## Switch for specific humidity calculation
-        self.chunks={'time':50}
+        self.chunks={'valid_time':50}
 
         self.var_path = config.var_list
 
@@ -69,7 +69,7 @@ class era5(object):
         if self.clean : os.system( "rm {0}".format( fout ) )
         if not os.path.exists( fout ) :
            fmt = "%Y-%m-%d"
-           day0 = ds.time.dt.strftime(fmt)[0].values
+           day0 = ds.valid_time.dt.strftime(fmt)[0].values
            command = "cdo inttime,{0},{1},1hour {2} {3}".format(
                       day0, '00:30:00', fin, fout )
            print (command)
@@ -87,7 +87,7 @@ class era5(object):
                          float(self.south), float(self.north),
                          float(self.west),  float(self.east), fin, fout )
            print (command)
-           os.system( command )
+           os.system(command)
     
     def extract_loop(self, nameVar, dirVar):
         """
@@ -121,14 +121,14 @@ class era5(object):
                           chunks=self.chunks)
     
                 ## assume to be constant in time
-                Time = ds.time.values
+                Time = ds.valid_time.values
                 dt  = (Time[1] - Time[0])#.astype('timedelta64[s]') 
                 dt2 = dt / 2
                 print ("dt", dt, dt2)
     
                 # Center in mid-time step (00:30)
                 # NEMO assumes this timing according to documentation
-                ds = ds.interp(time=Time + dt2)
+                ds = ds.interp(valid_time=Time + dt2)
                 ds.to_netcdf(foutInterp)
                 ds.close()
     
@@ -168,16 +168,16 @@ class era5(object):
                 if iY+1 != self.year_end+1:
                     f1 = path + str(iY+1) + '.nc'
                     ds1 = xr.open_dataarray(f1, chunks=self.chunks)
-                    ds1 = ds1.isel(time=0)
-                    ds = xr.concat([ds0,ds1], dim='time')
+                    ds1 = ds1.isel(valid_time=0)
+                    ds = xr.concat([ds0,ds1], dim='valid_time')
                 else:
                     ds = ds0
 
                 # interpolate to half time-step
-                Time = ds.time.values
+                Time = ds.valid_time.values
                 dt = (Time[1] - Time[0]) / 2
-                half_time = (ds.time + dt).sel(time=str(iY)).values
-                ds = ds.interp(time=half_time)
+                half_time = (ds.valid_time + dt).sel(valid_time=str(iY)).values
+                ds = ds.interp(valid_time=half_time)
 
                 # format indexes and coords
                 self.ds = self.format_nc(ds, nameVar)
@@ -185,17 +185,8 @@ class era5(object):
                 # check orientation of latitude
                 self.ds = _utils.check_latitude(self.ds)
 
-                # maintain encoding for storage savings
-                scale_factor = ds0.encoding['scale_factor']
-                add_offset   = ds0.encoding['add_offset']
-
-                # save with encoding
-                self.ds.to_netcdf(fout, encoding={nameVar: {
-                                  "dtype": 'int16',
-                                  "scale_factor": scale_factor,
-                                  "add_offset": add_offset,
-                                  "_FillValue": -32767}},
-                                  unlimited_dims="time")
+                # save
+                self.ds.to_netcdf(fout, unlimited_dims="valid_time")
 
     def format_nc(self, da, nameVar):
         """
@@ -210,7 +201,7 @@ class era5(object):
         mlat = xr.DataArray(mlat, dims=['Y','X'], attrs=lat_attrs)
       
         # assign X/Y as indexes
-        da = da.drop(['longitude','latitude'])
+        da = da.drop_vars(['longitude','latitude'])
         da = da.rename({'longitude':'X','latitude':'Y'})
         da = da.assign_coords({'longitude':mlon,'latitude':mlat})
       
@@ -220,7 +211,7 @@ class era5(object):
         return da
 
     def split_by_year(self, ds, outpath, var):
-        for ind, year in ds_all.groupby('time.year'):
+        for ind, year in ds_all.groupby('valid_time.year'):
             print (ind)
             var = var.upper()
             year = self.cf_to_int_time(year)
@@ -256,7 +247,7 @@ class era5(object):
         
         # save
         fout = self.path_FORCING + '/ERA5_sph_y' + str(iY) + '.nc'
-        sph.to_netcdf(fout, unlimited_dims="time")
+        sph.to_netcdf(fout, unlimited_dims="valid_time")
 
     def process_all(self, step1=True, step2=True):
         os.system("mkdir {0} {1}".format(
@@ -267,6 +258,10 @@ class era5(object):
         ## Loop over each variable
         for dirVar, nameVar in self.var_path.items() :
         
+            # adjust for new file formatting
+            if nameVar in ["avg_sdlwrf", "avg_sdswrf"]:
+                nameVar = "msdw" + nameVar[6:]
+
             print ("================== {0} - {1} ==================".format(
                     dirVar, nameVar ))
         

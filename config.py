@@ -6,7 +6,7 @@ y0 = 2004 # Initial year
 y1 = 2004 # Final year
 
 ## Compute specific humidity or not
-sph_ON = False 
+sph_ON = False
 
 # Variable list
 var_list = { 
@@ -23,10 +23,10 @@ if sph_ON :
    var_list[ "surface_pressure"  ] = 'sp'
    var_list[ "2m_dewpoint_temperature" ] = 'd2m'
 
-head = '/projectsa/NEMO' # head path
-raw_path       = head + '/Forcing'    # raw data
-tmp_path       = head + '/ryapat/Extract'  # temp extraction space
-processed_path = head + '/ryapat/Forcing'  # processed forcing
+head = ___HEAD_PATH___ # head path (set by user)
+raw_path       = head + 'Raw'    # raw data
+tmp_path       = head + 'Extract'  # temp extraction space
+processed_path = head + 'Forcing'  # processed forcing
 
 # set domain extent
 east  =   19.  # east border
