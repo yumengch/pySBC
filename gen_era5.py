@@ -87,7 +87,7 @@ class era5(object):
                          float(self.south), float(self.north),
                          float(self.west),  float(self.east), fin, fout )
            print (command)
-           os.system( command )
+           os.system(command)
     
     def extract_loop(self, nameVar, dirVar):
         """
@@ -185,7 +185,7 @@ class era5(object):
                 # check orientation of latitude
                 self.ds = _utils.check_latitude(self.ds)
 
-                # save with encoding
+                # save
                 self.ds.to_netcdf(fout, unlimited_dims="valid_time")
 
     def format_nc(self, da, nameVar):
@@ -258,6 +258,10 @@ class era5(object):
         ## Loop over each variable
         for dirVar, nameVar in self.var_path.items() :
         
+            # adjust for new file formatting
+            if nameVar in ["avg_sdlwrf", "avg_sdswrf"]:
+                nameVar = "msdw" + nameVar[6:]
+
             print ("================== {0} - {1} ==================".format(
                     dirVar, nameVar ))
         
