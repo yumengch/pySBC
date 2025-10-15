@@ -88,7 +88,8 @@ class era5(object):
                          float(self.west),  float(self.east), fin, fout )
            print (command)
            os.system(command)
-    
+
+
     def extract_loop(self, nameVar, dirVar):
         """
         loop extraction over each year
@@ -102,6 +103,11 @@ class era5(object):
               nameVar, iY, self.path_EXTRACT )
             ## Extract the subdomain
             self.extract(finput, foutput) 
+
+            # adjust for new file formatting
+            varLabel = xr.open_dataarray(finput).name
+            if varLabel in ["avg_sdlwrf", "avg_sdswrf"]:
+                os.system(f"ncrename -v {varLabel},{nameVar} {finput}")
 
     def interpolate_all(self, nameVar, foutInterp, pythonic=False):
         """
@@ -164,9 +170,9 @@ class era5(object):
                 f0 = path + str(iY) + '.nc'
                 ds0 = xr.open_dataarray(f0, chunks=self.chunks)
 
-                # open year1 file
-                if iY+1 != self.year_end+1:
-                    f1 = path + str(iY+1) + '.nc'
+                # open year1 file for interp across year end
+                f1 = path + str(iY+1) + '.nc'
+                if os.path.exists(f1):
                     ds1 = xr.open_dataarray(f1, chunks=self.chunks)
                     ds1 = ds1.isel(valid_time=0)
                     ds = xr.concat([ds0,ds1], dim='valid_time')
@@ -258,9 +264,6 @@ class era5(object):
         ## Loop over each variable
         for dirVar, nameVar in self.var_path.items() :
         
-            # adjust for new file formatting
-            if nameVar in ["avg_sdlwrf", "avg_sdswrf"]:
-                nameVar = "msdw" + nameVar[6:]
 
             print ("================== {0} - {1} ==================".format(
                     dirVar, nameVar ))
