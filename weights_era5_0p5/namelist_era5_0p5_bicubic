@@ -1,0 +1,38 @@
+&grid_inputs
+    input_file       = 'era5_source_grid.nc'
+    nemo_file        = 'domain_cfg.nc'
+    datagrid_file    = 'remap_era5_0p5_grid.nc'
+    nemogrid_file    = 'remap_amm7_grid.nc'
+    method           = 'regular'
+    input_lon        = 'lon'
+    input_lat        = 'lat'
+    nemo_lon         = 'glamt'
+    nemo_lat         = 'gphit'
+    nemo_mask        = 'none'
+    nemo_mask_value  = 10
+    input_mask       = 'none'
+    input_mask_value = 10
+/
+
+&remap_inputs
+    num_maps        = 1
+    grid1_file      = 'remap_era5_0p5_grid.nc'
+    grid2_file      = 'remap_amm7_grid.nc'
+    interp_file1    = 'era5_0p5_to_amm7_bicubic_scrip.nc'
+    interp_file2    = 'amm7_to_era5_0p5_bicubic_scrip.nc'
+    map1_name       = 'ERA5 0.5 degree to AMM7 bicubic Mapping'
+    map2_name       = 'AMM7 to ERA5 0.5 degree bicubic Mapping'
+    map_method      = 'bicubic'
+    normalize_opt   = 'frac'
+    output_opt      = 'scrip'
+    restrict_type   = 'latitude'
+    num_srch_bins   = 90
+    luse_grid1_area = .false.
+    luse_grid2_area = .false.
+/
+
+&shape_inputs
+    interp_file = 'era5_0p5_to_amm7_bicubic_scrip.nc'
+    output_file = 'weights_era5_0p5_bicubic.nc'
+    ew_wrap     = -1
+/

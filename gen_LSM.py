@@ -1,145 +1,122 @@
-import xarray as xr
+from pathlib import Path
+
 import numpy as np
+import xarray as xr
+
 import config
-import os
-import _utils
 
 class LandSeaMask(object):
     """ Generate ERA5 Land Sea Mask for NEMO  """
 
     def __init__(self):
-        # set paths
-        self.tmp_path    = config.tmp_path
-        self.global_mask = config.head + '/ryapat/ERA5_LSM_20040101.nc'
+        canonical_path = Path(config.raw_path) / 'ERA5_LSM_20040101.nc'
+        # get_era5.py historically omitted the separator before this filename.
+        legacy_path = Path(str(config.raw_path) + 'ERA5_LSM_20040101.nc')
+        self.input_path = (
+            legacy_path if legacy_path.exists() and not canonical_path.exists()
+            else canonical_path
+        )
+        self.output_path = Path(config.processed_path) / 'ERA5_LSM.nc'
 
         self.cut_off = 0.5  # flooding cell fraction
-
-        # domain extent
         self.east = config.east
         self.west = config.west
         self.north = config.north
         self.south = config.south
 
-        # assert 0-360 lon format
-        self.assert_lons()
-
-    def assert_lons(self):
-        """
-        Ensure requested longitudes are in 0-360 format
-        """
-
-        # conform longitude format
-        if self.west < 0 : self.west = 360. + self.west
-        if self.east < 0 : self.east = 360. + self.east
-
     def format_lat_lon(self, da):
-        """
-        Add netCDF attributes and format coordinates
-        
-        Almost a duplicate of gen_era5
-        """
+        """Format the downloaded grid like the processed NEMO forcing."""
 
+        # ERA5 latitude is north-to-south; NEMO forcing is south-to-north.
+        if da.longitude.values[0] > da.longitude.values[-1]:
+            da = da.isel(longitude=slice(None, None, -1))
+        if da.latitude.values[0] > da.latitude.values[-1]:
+            da = da.isel(latitude=slice(None, None, -1))
         # mesh lat and lon
         mlon, mlat = np.meshgrid(da.longitude, da.latitude)
-        lon_attrs={'long_name':'longitude','units':'degrees_east'}
-        lat_attrs={'long_name':'latitude', 'units':'degrees_north'}
-        mlon = xr.DataArray(mlon, dims=['Y','X'], attrs=lon_attrs)
-        mlat = xr.DataArray(mlat, dims=['Y','X'], attrs=lat_attrs)
+        lon_attrs = {'long_name':'Longitude', 'units':'degree_east',
+                     'standard_name':'longitude'}
+        lat_attrs = {'long_name':'Latitude', 'units':'degree_north',
+                     'standard_name':'latitude'}
+        mlon = xr.DataArray(mlon, dims=['nLat','nLon'], attrs=lon_attrs)
+        mlat = xr.DataArray(mlat, dims=['nLat','nLon'], attrs=lat_attrs)
       
-        # assign X/Y as indexes
-        da = da.drop(['longitude','latitude'])
-        da = da.rename({'longitude':'X','latitude':'Y'})
-        da = da.assign_coords({'longitude':mlon,'latitude':mlat})
+        # assign NEMO forcing dimensions and two-dimensional coordinates
+        da = da.drop_vars(['longitude','latitude'])
+        da = da.rename({'longitude':'nLon', 'latitude':'nLat'})
+        da = da.assign_coords({'lon':mlon, 'lat':mlat})
       
         return da
 
-    def cut_region_ncks(self):
-        """
-        Cut source Land Sea Mask to domain
-        """
-
-
-        # extracted output path
-        self.extracted_path = config.processed_path + \
-                              '/ERA5_LSM_{0}_{1}_{2}_{3}.nc'.format(
-                              self.west, self.east, self.south, self.north)
-
-        # set ncks
-        cmd_str = "ncks -d latitude,{0},{1} -d longitude,{2},{3} {4} {5}"
-
-        # format ncks
-        cmd = cmd_str.format(self.south, self.north, self.west, self.east,
-                             self.global_mask, self.extracted_path)
-        print (cmd)
-        
-        # exectute ncks
-        os.system( cmd )
-
-    def cut_region_python(self):
-        """
-        Cut source Land Sea Mask to domain
-        
-        ***Under construction***
-        Pythonic replacement for ncks to reduce number of files created.
-        """
-
-        # open extracted mask
-        msk = xr.open_dataarray(self.global_mask)
-
-        # extract region
-        msk = msk.where((msk.longitude > self.west) &
-                        (msk.longitude < self.east) &
-                        (msk.latitude > self.south) &
-                        (msk.latitude < self.north), drop=True)
-
-        msk.to_netcdf(config.processed_path + '/ERA5_LSM_python.nc') 
- 
-    def cut_method_compare(self):
-        """
-        Temporary function to compare extraction methods.
-        """
-
-        msk_python = xr.open_dataarray(
-                          config.processed_path + '/ERA5_LSM_python.nc') 
-        msk =  xr.open_dataarray(config.processed_path + '/ERA5_LSM.nc') 
-
-        print (msk)
-        print (msk_python)
-
     def gen_land_sea_mask(self):
-        """
-        Create Land Sea Mask
+        """Create one shared NEMO mask from the ERA5 ensemble product."""
 
-        Extracs region from global Land Sea Mask. Then asserts binary file
-        format and convensional coordinate orientation.
-        """
+        if not self.input_path.exists():
+            raise FileNotFoundError(f"ERA5 land-sea mask not found: {self.input_path}")
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        da = xr.open_dataarray(self.input_path)
 
-        # cut desired to region
-        self.cut_region_ncks()
+        for time_dim in ('valid_time', 'time'):
+            if time_dim in da.dims:
+                da = da.isel({time_dim: 0}, drop=True)
+                break
+        if 'expver' in da.coords:
+            da = da.drop_vars('expver')
 
-        # get extracted and nemo dummy data
-        da = xr.open_dataarray(self.extracted_path, chunks=-1)
+        source_numbers = []
+        if 'number' in da.dims:
+            source_numbers = [int(value) for value in da.number.values]
+            reference = da.isel(number=0, drop=True)
+            for index in range(1, da.sizes['number']):
+                candidate = da.isel(number=index, drop=True)
+                if not np.array_equal(
+                        reference.values, candidate.values, equal_nan=True):
+                    raise ValueError(
+                        "ERA5 land-sea masks differ between ensemble members"
+                    )
+            da = reference
+        elif 'number' in da.coords:
+            source_numbers = [int(da.number.values)]
+            da = da.drop_vars('number')
 
-        # check time
-        if "time" in da.dims: 
-            da = da.isel(time=0).drop("time")
+        if not np.isfinite(da.values).all():
+            raise ValueError("ERA5 land-sea mask contains non-finite values")
+        expected_bounds = {
+            'longitude': (self.west, self.east),
+            'latitude': (self.south, self.north),
+        }
+        for coordinate, bounds in expected_bounds.items():
+            values = da[coordinate].values
+            if not np.allclose((values.min(), values.max()), bounds):
+                raise ValueError(f"Unexpected {coordinate} bounds in {self.input_path}")
 
-        # set 2d mesh for lat and lon
         da = self.format_lat_lon(da)
 
-        # ensure conventional latitude
-        da = _utils.check_latitude(da)
 
         # mask (sea = 0, land = 1)
-        seas = da < self.cut_off
-        da = xr.where(seas, 0, 1)
+        da = xr.where(da < self.cut_off, 0, 1).astype(np.int8)
 
         # capitalise variable
         da.name = "LSM"
+        da.attrs = {
+            'long_name': 'ERA5 binary land-sea mask',
+            'units': '1',
+            'flag_values': np.array([0, 1], dtype=np.int8),
+            'flag_meanings': 'sea land',
+            'threshold': self.cut_off,
+
+        }
 
         # save
-        save_extension = "/ERA5_LSM_flood_{0}.nc".format(str(self.cut_off))
-        da.to_netcdf(config.processed_path + save_extension)
+        output = da.to_dataset()
+        output.attrs = {
+            'Description': 'ERA5 land-sea mask for NEMO atmospheric forcing',
+            'source_product_type': 'ensemble_members',
+            'source_ensemble_numbers': ','.join(map(str, source_numbers)),
+            'ensemble_masks_verified_identical': int(bool(source_numbers)),
+        }
+        output.to_netcdf(self.output_path)
+        print(f"Wrote {self.output_path}")
 
 if __name__ == '__main__':
     LSM = LandSeaMask()

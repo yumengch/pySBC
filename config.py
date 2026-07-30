@@ -2,18 +2,18 @@
 Set ERA5 user defined parameters
 """
 
-y0 = 2004 # Initial year
-y1 = 2004 # Final year
+y0 = 2015 # Initial year
+y1 = 2015 # Final year
 
 ## Compute specific humidity or not
-sph_ON = False
+sph_ON = True
 
 # Variable list
-var_list = { 
+var_list = {
        "10m_u_component_of_wind" : "u10",
        "10m_v_component_of_wind" : "v10",
-       "2m_temperature"          : "t2m", 
-       "mean_sea_level_pressure" : "msl", 
+       "2m_temperature"          : "t2m",
+       "mean_sea_level_pressure" : "msl",
        "mean_snowfall_rate"      : "msr" ,
        "mean_surface_downward_long_wave_radiation_flux"  : "msdwlwrf",
        "mean_surface_downward_short_wave_radiation_flux" : "msdwswrf",
@@ -23,7 +23,7 @@ if sph_ON :
    var_list[ "surface_pressure"  ] = 'sp'
    var_list[ "2m_dewpoint_temperature" ] = 'd2m'
 
-head = ___HEAD_PATH___ # head path (set by user)
+head = "/work/n01/n01/ymchen/ersem/ersem-pdaf/pySBC/data" # head path (set by user)
 raw_path       = head + 'Raw'    # raw data
 tmp_path       = head + 'Extract'  # temp extraction space
 processed_path = head + 'Forcing'  # processed forcing

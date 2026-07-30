@@ -3,7 +3,7 @@
 """
 
   Download ERA5 ECMWF 2D forcing fields for NEMO bulk formulation
-  You need to have an account on CDS, 
+  You need to have an account on CDS,
   https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-single-levels?tab=form
 
   You will nee to install the python package and  add your security key
@@ -22,7 +22,6 @@ __date__        = "2019-02"
 #====================== LOAD MODULES =========================
 
 import os
-import numpy as np
 import cdsapi
 import config
 
@@ -32,8 +31,11 @@ YEAR_0   = config.y0        # Initial year
 YEAR_1   = config.y1        # Final year
 VAR_INST = config.var_list  # Variables to process
 out_path = config.raw_path  # Path for saving data
-LSM      = False            # Get LSM
- 
+LSM      = True            # Get LSM
+# Match the ERA5 grid used by run/exp_test/ens_1/fluxes.  The longitude in
+# those files is stored as 332--359.75, 0--19 degrees east (28 W--19 E).
+AREA     = [68, -28, 38, 19]  # North, west, south, east
+
 #======================= CORE CODE ===========================
 
 ## Initiate connection to server
@@ -52,11 +54,12 @@ for iY in range( YEAR_0, YEAR_1+1 ) :
         fname2 = "{0}/{2}_{1}.nsddsdsc".format( directory, kV, iY )
         if not os.path.exists( fname2 ) :
 
-           server.retrieve( 
+           server.retrieve(
     'reanalysis-era5-single-levels',
     {
-        'product_type':'reanalysis',
+        'product_type':'ensemble_members',
         'format':'netcdf',
+        'area':AREA,
         'variable':[
             kV,
         ],
@@ -98,16 +101,13 @@ if LSM:
     server.retrieve(
         'reanalysis-era5-single-levels',
         {
-            'product_type': 'reanalysis',
+            'product_type': 'ensemble_members',
             'format': 'netcdf',
+            'area': AREA,
             'variable': 'land_sea_mask',
             'time': '00:00',
             'day': '01',
             'month': '01',
             'year': '2004',
         },
-        outpath + 'ERA5_LSM_20040101.nc')
-
-# future option
-# to add lat-lon extent
-# 'area':['75', '-15', '30', '42.5'],
+        out_path + 'ERA5_LSM_20040101.nc')
