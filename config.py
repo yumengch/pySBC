@@ -6,7 +6,7 @@ y0 = 2015 # Initial year
 y1 = 2015 # Final year
 
 ## Compute specific humidity or not
-sph_ON = False
+sph_ON = True
 
 # Variable list
 var_list = {
