@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 import config
+from _utils import longitude_0_360
 
 class LandSeaMask(object):
     """ Generate ERA5 Land Sea Mask for NEMO  """
@@ -33,19 +34,20 @@ class LandSeaMask(object):
         if da.latitude.values[0] > da.latitude.values[-1]:
             da = da.isel(latitude=slice(None, None, -1))
         # mesh lat and lon
-        mlon, mlat = np.meshgrid(da.longitude, da.latitude)
+        output_longitude = longitude_0_360(da.longitude)
+        mlon, mlat = np.meshgrid(output_longitude, da.latitude)
         lon_attrs = {'long_name':'Longitude', 'units':'degree_east',
                      'standard_name':'longitude'}
         lat_attrs = {'long_name':'Latitude', 'units':'degree_north',
                      'standard_name':'latitude'}
         mlon = xr.DataArray(mlon, dims=['nLat','nLon'], attrs=lon_attrs)
         mlat = xr.DataArray(mlat, dims=['nLat','nLon'], attrs=lat_attrs)
-      
+
         # assign NEMO forcing dimensions and two-dimensional coordinates
         da = da.drop_vars(['longitude','latitude'])
         da = da.rename({'longitude':'nLon', 'latitude':'nLat'})
         da = da.assign_coords({'lon':mlon, 'lat':mlat})
-      
+
         return da
 
     def gen_land_sea_mask(self):
@@ -115,7 +117,18 @@ class LandSeaMask(object):
             'source_ensemble_numbers': ','.join(map(str, source_numbers)),
             'ensemble_masks_verified_identical': int(bool(source_numbers)),
         }
-        output.to_netcdf(self.output_path)
+        # NEMO opens the static mask for every forcing field record.  Keep this
+        # tiny file in the inexpensive NetCDF-3 format used by the legacy ERA5
+        # forcing rather than paying the NetCDF-4/HDF5 metadata cost each time.
+        output.to_netcdf(
+            self.output_path,
+            format='NETCDF3_64BIT',
+            encoding={
+                'LSM': {'dtype': 'i1', '_FillValue': None},
+                'lat': {'dtype': 'f4', '_FillValue': None},
+                'lon': {'dtype': 'f4', '_FillValue': None},
+            },
+        )
         print(f"Wrote {self.output_path}")
 
 if __name__ == '__main__':

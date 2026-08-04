@@ -1,4 +1,3 @@
-import argparse
 import glob
 import multiprocessing
 import os
@@ -10,6 +9,8 @@ import datetime
 from pathlib import Path
 import xarray as xr
 import config
+from _utils import longitude_0_360
+
 
 class era5(object):
     """
@@ -51,31 +52,22 @@ class era5(object):
         """Read NetCDF file"""
 
         lfiles = sorted( glob.glob( fname ) )
-        ds = xr.open_mfdataset(lfiles, chunks=chunks, parallel=True,
+        ds = xr.open_mfdataset(lfiles, chunks=chunks, parallel=False,
                                decode_times=False)
 
         return ds[KeyVar]
-
-    def add_global_attrs(self, ds):
-        """ set global attributes for netcdf """
-
-        fmt = "%Y-%m-%d %H:%M:%S"
-        ds.attrs['Created'] = datetime.datetime.now().strftime(fmt)
-        ds.attrs['Description'] = 'ERA5 Atmospheric conditions for AMM15 NEMO'
-
-        return ds
 
     def interp_time(self, ds, fin, fout):
         """
         interpolate time to half timestep
         cdo version of interpolation
         """
-        if self.clean : os.system( "rm {0}".format( fout ) )
+        if self.clean :
+            os.system( f"rm {fout}")
         if not os.path.exists( fout ) :
            fmt = "%Y-%m-%d"
            day0 = ds.valid_time.dt.strftime(fmt)[0].values
-           command = "cdo inttime,{0},{1},1hour {2} {3}".format(
-                      day0, '00:30:00', fin, fout )
+           command = f"cdo inttime,{day0},00:30:00,1hour {fin} {fout}"
            print (command)
            os.system( command )
 
@@ -84,15 +76,13 @@ class era5(object):
         extract regional domain
         """
 
-        if self.clean : os.system( "rm {0}".format( fout ) )
+        if self.clean:
+            os.system(f"rm {fout}")
         if not os.path.exists( fout ) :
-           cmd_str = "ncks -d latitude,{0},{1} -d longitude,{2},{3} {4} {5}"
-           command = cmd_str.format(
-                         float(self.south), float(self.north),
-                         float(self.west),  float(self.east), fin, fout )
+           command = f"ncks -d latitude,{float(self.south)},{float(self.north)} "\
+            f"-d longitude,{float(self.west)},{float(self.east)} {fin} {fout}"
            print (command)
            os.system(command)
-
 
     def extract_loop(self, nameVar, dirVar):
         """
@@ -101,10 +91,8 @@ class era5(object):
 
         for iY in range( self.year_init, self.year_end+1 ) :
             ## Files
-            finput  = "{0}/{1}/{2}_{1}.nc".format(
-              self.path_ERA5, dirVar, iY )
-            foutput = "{2}/{0}_y{1}.nc".format(
-              nameVar, iY, self.path_EXTRACT )
+            finput  = f"{self.path_ERA5}/{dirVar}/{iY}_{dirVar}.nc"
+            foutput = f"{self.path_EXTRACT}/{nameVar}_y{iY}.nc"
             ## Extract the subdomain
             self.extract(finput, foutput)
 
@@ -127,7 +115,9 @@ class era5(object):
         if not os.path.exists( foutInterp ) :
             if pythonic:
                 ds = self.read_NetCDF_all_years(
-                    "{1}/{0}_y*.nc".format(nameVar, self.path_EXTRACT), nameVar)
+                    f"{self.path_EXTRACT}/{nameVar}_y*.nc",
+                    nameVar
+                    )
 
                 ## assume to be constant in time
                 Time = ds.valid_time.values
@@ -143,14 +133,14 @@ class era5(object):
 
             else: # cdo
                 # merge all years
-                command = "cdo mergetime {1}/{0}_y*.nc {1}/{0}_all.nc".format(
-                                                     nameVar, self.path_EXTRACT)
+                command = f"cdo mergetime {self.path_EXTRACT}/{nameVar}_y*.nc" \
+                f" {self.path_EXTRACT}/{nameVar}_all.nc"
                 os.system(command)
 
                 # interpolate
-                finput = "{1}/{0}_all.nc".format(nameVar, self.path_EXTRACT)
+                finput = f"{self.path_EXTRACT}/{nameVar}_all.nc"
                 xrds = xr.open_dataset(finput)
-                interp_time(xrds, finput, foutInterp)
+                self.interp_time(xrds, finput, foutInterp)
 
     def interpolate_by_year(self, nameVar):
         """
@@ -183,11 +173,8 @@ class era5(object):
             # Interpolate to the half source-data time step. ERA5 ensemble
             # analyses are three-hourly, so this preserves that cadence.
             times = ds.valid_time.values
-            if len(times) < 2:
-                raise ValueError(f"{f0} contains fewer than two time records")
             half_step = (times[1] - times[0]) / 2
-            half_time = (ds.valid_time + half_step).sel(
-                valid_time=str(iY)).values
+            half_time = (ds.valid_time + half_step).sel(valid_time=str(iY)).values
             ds = ds.interp(valid_time=half_time)
 
             for member, source_number, member_data in self.iter_members(ds):
@@ -207,7 +194,7 @@ class era5(object):
                 if source_number is not None:
                     output.attrs['source_ensemble_number'] = source_number
                     output.attrs['model_ensemble_member'] = member
-                output.to_netcdf(fout, unlimited_dims="time")
+                self.write_forcing(output, fout)
 
             ds0.close()
             if f1.exists():
@@ -221,9 +208,6 @@ class era5(object):
             return
 
         source_numbers = da['number'].values.tolist()
-        if len(source_numbers) != len(set(source_numbers)):
-            raise ValueError("ERA5 ensemble realization IDs are not unique")
-
         for member, source_number in enumerate(source_numbers, start=1):
             member_data = da.sel(number=source_number, drop=True)
             yield member, int(source_number), member_data
@@ -243,7 +227,8 @@ class era5(object):
             da = da.isel(latitude=slice(None, None, -1))
 
         # mesh lat and lon
-        mlon, mlat = np.meshgrid(da.longitude, da.latitude)
+        output_longitude = longitude_0_360(da.longitude)
+        mlon, mlat = np.meshgrid(output_longitude, da.latitude)
         lon_attrs = {'long_name':'Longitude', 'units':'degree_east',
                      'standard_name':'longitude'}
         lat_attrs = {'long_name':'Latitude', 'units':'degree_north',
@@ -260,15 +245,32 @@ class era5(object):
                         'latitude':'nLat'})
         da = da.assign_coords({'lon':mlon, 'lat':mlat})
         da.name = nameVar.upper()
+        # GRIB_* metadata from the downloaded product is not needed by NEMO
+        # and prevents writing the classic-model files used by the legacy
+        # forcing (several attributes are stored as int64).
+        retained_attrs = {
+            key: value for key, value in da.attrs.items()
+            if key in ('long_name', 'units', 'standard_name')
+        }
+        da.attrs = retained_attrs
         da['time'].attrs.update({
             'long_name': 'time',
             'standard_name': 'time',
         })
 
         # file information
-        self.add_global_attrs(da)
+        da.attrs['Description'] = 'ERA5 atmospheric forcing for regional NEMO'
 
         return da
+
+    def write_forcing(self, da, path):
+        """Write a NEMO forcing field in the legacy runtime format."""
+
+        da.to_netcdf(
+            path,
+            format='NETCDF4_CLASSIC',
+            unlimited_dims='time'
+        )
 
     def split_by_year(self, ds, outpath, var):
         for ind, year in ds_all.groupby('valid_time.year'):
@@ -276,10 +278,10 @@ class era5(object):
             var = var.upper()
             year = self.cf_to_int_time(year)
             if nameVar in [ "d2m", "sp" ] :
-                fout = "{2}/SPH_ERA5_{0}_y{1}.nc".format(var, ind, outpath)
+                fout = f"{outpath}/SPH_ERA5_{var}_y{ind}.nc"
             else:
-                fout = "{2}/ERA5_{0}_y{1}.nc".format(var, ind, outpath)
-            if clean : os.system( "rm {0}".format( fout ) )
+                fout = f"{outpath}/ERA5_{var}_y{ind}.nc"
+            if self.clean : os.system( f"rm {fout}" )
             if not os.path.exists( fout ) :
                 year.to_netcdf(fout)
 
@@ -316,7 +318,7 @@ class era5(object):
 
         # save
         fout = output_dir / f'ERA5_SPH_y{iY}.nc'
-        sph.to_netcdf(fout, unlimited_dims="time")
+        self.write_forcing(sph, fout)
         d2m.close()
         sp.close()
 
@@ -339,8 +341,6 @@ class era5(object):
         variables = list(self.var_path.items())
         if not variables:
             raise ValueError("No ERA5 variables are configured")
-        if workers < 1:
-            raise ValueError("workers must be positive")
         workers = min(workers, len(variables))
         print(f"Processing {len(variables)} variables with {workers} worker(s)",
               flush=True)
@@ -376,7 +376,6 @@ class era5(object):
 
 def process_variable_worker(dirVar, nameVar, step1, step2):
     """Process entry point used by spawned worker processes."""
-
     with dask.config.set(scheduler="synchronous"):
         processor = era5()
         processor.process_variable(dirVar, nameVar, step1, step2)
@@ -391,6 +390,8 @@ def default_worker_count():
 
     try:
         workers = int(slurm_cpus)
+        if workers > 1:
+            workers = workers - 1 # leave one CPU for the main process
     except ValueError as exc:
         raise ValueError(
             f"Invalid SLURM_CPUS_PER_TASK value: {slurm_cpus!r}"
@@ -400,38 +401,6 @@ def default_worker_count():
         raise ValueError("SLURM_CPUS_PER_TASK must be positive")
     return workers
 
-
-def positive_int(value):
-    """argparse type for a positive process count."""
-
-    value = int(value)
-    if value < 1:
-        raise argparse.ArgumentTypeError("must be a positive integer")
-    return value
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Generate ERA5 forcing files for NEMO",
-    )
-    parser.add_argument(
-        "--workers",
-        type=positive_int,
-        default=None,
-        help=("number of variables to process concurrently; defaults to "
-              "SLURM_CPUS_PER_TASK inside Slurm and 1 otherwise"),
-    )
-    return parser.parse_args()
-
-
 if __name__ == '__main__':
-    args = parse_args()
-    allocated_workers = default_worker_count()
-    workers = args.workers if args.workers is not None else allocated_workers
-    if os.environ.get("SLURM_CPUS_PER_TASK") and workers > allocated_workers:
-        raise ValueError(
-            f"--workers={workers} exceeds the {allocated_workers} CPUs "
-            "allocated by Slurm"
-        )
     era = era5()
-    era.process_all(workers=workers)
+    era.process_all(workers=default_worker_count())

@@ -21,3 +21,10 @@ def check_latitude(ds):
         ds = ds.isel(Y=slice(None,None,-1))
 
     return ds
+
+
+def longitude_0_360(longitude):
+    """Return longitudes in the canonical half-open interval [0, 360)."""
+
+    normalized = longitude % 360.0
+    return normalized
